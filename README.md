@@ -5,11 +5,11 @@ Nifty little TCP -> Unix Socket proxy.  Meant to expose docker/ssh control
 sockets to the network.
 
 By default, it searches the entire filesystem for unix sockets and for each one
-found spawns a TCP listener which will create connections proxied to the Unix
-socket.  The starting (i.e. lowest) port is configurable.
+found spawns a TCP listener which will accept connections and proxy them to the
+Unix socket.  The starting (i.e. lowest) port is configurable.
 
-A simple substring (e.g. `docker` or `.ssh`) may be used to filter the sockets
-exposed.  This is handy to only expose certain services.
+A regex (by default `ssh|docker|tmux|tmp`) is used to filter the sockts
+exposed.  
 
 The list of found an served sockets can be found by making a TCP connection
 (e.g. with netcat) to the lowest port, which by default is `61111`.

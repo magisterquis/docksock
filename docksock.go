@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 )
@@ -41,8 +42,8 @@ type walker struct {
 	wg     *sync.WaitGroup
 	np     uint /* Next port to try to listen on */
 	npL    *sync.Mutex
-	ss     string /* Substring which sockets must contain */
-	slist  string /* Socket list */
+	re     *regexp.Regexp /* Regex which sockets must match */
+	slist  string         /* Socket list */
 	slistL *sync.Mutex
 }
 
@@ -65,7 +66,7 @@ func (w *walker) walkFn(path string, info os.FileInfo, err error) error {
 	}
 
 	/* Make sure it contains the substring */
-	if !strings.Contains(path, w.ss) {
+	if !w.re.MatchString(path) {
 		return nil
 	}
 
@@ -248,10 +249,10 @@ func (w *walker) serveList(ready chan<- struct{}) {
 
 func main() {
 	var (
-		ss = flag.String(
-			"path-match",
-			"",
-			"Socket paths must contain `substr` to be served",
+		re = flag.String(
+			"path-re",
+			"ssh|docker|tmux|tmp",
+			"Socket paths must match the `regex` to be served",
 		)
 		startPort = flag.Uint(
 			"start-port",
@@ -299,8 +300,12 @@ Options:
 		wg:     new(sync.WaitGroup),
 		np:     *startPort,
 		npL:    new(sync.Mutex),
-		ss:     *ss,
 		slistL: new(sync.Mutex),
+	}
+	var err error
+	w.re, err = regexp.Compile(*re)
+	if nil != err {
+		verbose("Error compiling regex: %v", err)
 	}
 
 	/* Serve up a list of sockets */
