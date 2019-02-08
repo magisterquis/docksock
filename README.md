@@ -4,9 +4,9 @@ DockSock
 Nifty little TCP -> Unix Socket proxy.  Meant to expose docker/ssh control
 sockets to the network.
 
-By default, it searches the entire filesystem for unix sockets and for each one
-found spawns a TCP listener which will accept connections and proxy them to the
-Unix socket.  The starting (i.e. lowest) port is configurable.
+It periodically searches the entire filesystem for unix sockets and for each
+one found spawns a TCP listener which will accept connections and proxy them to
+the Unix socket.  The starting (i.e. lowest) port is configurable.
 
 A regex (by default `ssh|docker|tmux|tmp`) is used to filter the sockts
 exposed.  

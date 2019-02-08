@@ -6,7 +6,7 @@ package main
  * Expose docker sockets to the network
  * By J. Stuart McMurray
  * Created 20190207
- * Last Modified 20190207
+ * Last Modified 20190208
  */
 
 import (
@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -39,12 +40,13 @@ type CloseWriter interface {
 
 /* checker is used to pass a context to filepath.Walk */
 type walker struct {
-	wg     *sync.WaitGroup
 	np     uint /* Next port to try to listen on */
 	npL    *sync.Mutex
 	re     *regexp.Regexp /* Regex which sockets must match */
 	slist  string         /* Socket list */
 	slistL *sync.Mutex
+	seen   map[string]struct{} /* Sockets we know about */
+	seenL  *sync.Mutex
 }
 
 /* walkFn is called for every walked file */
@@ -70,8 +72,18 @@ func (w *walker) walkFn(path string, info os.FileInfo, err error) error {
 		return nil
 	}
 
+	/* If we've already seen this one, don't bother */
+	w.seenL.Lock()
+	if _, ok := w.seen[path]; ok {
+		w.seenL.Unlock()
+		return nil
+	}
+
+	/* Note that we've seen it now */
+	w.seen[path] = struct{}{}
+	w.seenL.Unlock()
+
 	/* It's a matching socket, serve it */
-	w.wg.Add(1)
 	go w.serve(path)
 
 	return nil
@@ -103,7 +115,6 @@ func (w *walker) listen() (net.Listener, error) {
 
 /* serve proxies tcp connections on the next available port to the socket */
 func (w *walker) serve(path string) {
-	defer w.wg.Done()
 
 	/* Spawn a listener */
 	l, err := w.listen()
@@ -130,7 +141,6 @@ func (w *walker) serve(path string) {
 			)
 			break
 		}
-		w.wg.Add(1)
 		go w.proxy(c, path)
 	}
 }
@@ -138,7 +148,6 @@ func (w *walker) serve(path string) {
 /* proxy proxies between c and the unix socket at path */
 func (w *walker) proxy(c net.Conn, path string) {
 	defer c.Close()
-	defer w.wg.Done()
 
 	tag := fmt.Sprintf("%v -> %v", c.RemoteAddr(), path)
 	verbose("[%v] Connected", tag)
@@ -231,9 +240,7 @@ func (w *walker) serveList(ready chan<- struct{}) {
 			verbose("Unable to accept list query client: %v", err)
 			break
 		}
-		w.wg.Add(1)
 		go func(lc net.Conn) {
-			defer w.wg.Done()
 			defer lc.Close()
 			w.slistL.Lock()
 			s := w.slist
@@ -256,7 +263,7 @@ func main() {
 		)
 		startPort = flag.Uint(
 			"start-port",
-			61111,
+			51111,
 			"Starting `port` to use for socket service",
 		)
 		startDir = flag.String(
@@ -269,6 +276,11 @@ func main() {
 			false,
 			"Verbose logging",
 		)
+		scanInterval = flag.Duration(
+			"scan-interval",
+			5*time.Minute,
+			"Time to `wait` between scans for new sockets",
+		)
 	)
 	flag.Usage = func() {
 		fmt.Fprintf(
@@ -276,7 +288,8 @@ func main() {
 			`Usage: %v [options]
 
 Finds unix sockets matching a regex and for each found socket, listens on a TCP
-port and forwards connections to the Unix socket.
+port and forwards connections to the Unix socket.  Every so often the
+filesystem is scanned for new sockets.
 
 The first port will send a list of port -> socket mappings to any connecting
 client.
@@ -297,10 +310,11 @@ Options:
 
 	/* Walk context */
 	w := &walker{
-		wg:     new(sync.WaitGroup),
 		np:     *startPort,
 		npL:    new(sync.Mutex),
 		slistL: new(sync.Mutex),
+		seen:   make(map[string]struct{}),
+		seenL:  new(sync.Mutex),
 	}
 	var err error
 	w.re, err = regexp.Compile(*re)
@@ -313,10 +327,12 @@ Options:
 	go w.serveList(ready)
 	<-ready
 
-	/* Look for sockets */
-	if err := filepath.Walk(*startDir, w.walkFn); nil != err {
-		log.Fatalf("Error walking file tree: %v", err)
+	/* Look for sockets every so often */
+	for {
+		if err := filepath.Walk(*startDir, w.walkFn); nil != err {
+			log.Fatalf("Error walking file tree: %v", err)
+		}
+		time.Sleep(*scanInterval)
 	}
 
-	w.wg.Wait()
 }
