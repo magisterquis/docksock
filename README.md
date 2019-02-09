@@ -9,7 +9,8 @@ one found spawns a TCP listener which will accept connections and proxy them to
 the Unix socket.  The starting (i.e. lowest) port is configurable.
 
 A regex (by default `ssh|docker|tmux|tmp`) is used to filter the sockts
-exposed.  
+exposed.  The directories `/proc`, `/sys`, and `/dev` are not searched for
+sockets.
 
 The list of found an served sockets can be found by making a TCP connection
 (e.g. with netcat) to the lowest port, which by default is `61111`.
