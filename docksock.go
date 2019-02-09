@@ -56,9 +56,9 @@ func (w *walker) walkFn(path string, info os.FileInfo, err error) error {
 		return nil
 	}
 	/* Skip /proc, /sys, and /dev */
-	if strings.HasPrefix(path, "/proc") ||
+	if info.IsDir() && (strings.HasPrefix(path, "/proc") ||
 		strings.HasPrefix(path, "/sys") ||
-		strings.HasPrefix(path, "/dev") {
+		strings.HasPrefix(path, "/dev")) {
 		return filepath.SkipDir
 	}
 
